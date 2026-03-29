@@ -57,11 +57,11 @@ def chapter1(data, config):
     rev_target = config["revenue_target"]
 
     # 从收入成本表计算收入/成本（主口径）
-    ic_mkt = ic[~ic["is_related"]]
-    rev_25 = ic_mkt[(ic_mkt["摘要"] == year) & (ic_mkt["科目"] == "收入")]["本期借方"].sum()
-    rev_24 = ic_mkt[(ic_mkt["摘要"] == base) & (ic_mkt["科目"] == "收入")]["本期借方"].sum()
-    cst_25 = ic_mkt[(ic_mkt["摘要"] == year) & (ic_mkt["科目"] == "成本")]["本期借方"].sum()
-    cst_24 = ic_mkt[(ic_mkt["摘要"] == base) & (ic_mkt["科目"] == "成本")]["本期借方"].sum()
+    ic_all = ic
+    rev_25 = ic_all[(ic_all["摘要"] == year) & (ic_all["科目"] == "收入")]["本期借方"].sum()
+    rev_24 = ic_all[(ic_all["摘要"] == base) & (ic_all["科目"] == "收入")]["本期借方"].sum()
+    cst_25 = ic_all[(ic_all["摘要"] == year) & (ic_all["科目"] == "成本")]["本期借方"].sum()
+    cst_24 = ic_all[(ic_all["摘要"] == base) & (ic_all["科目"] == "成本")]["本期借方"].sum()
 
     gm_25 = rev_25 - cst_25
     gm_24 = rev_24 - cst_24
@@ -421,24 +421,54 @@ def chapter4(data, config):
         "has_cf": data.get("has_cf", False),
     }
 
-    # ── 区域现金净额（需项目级现金流）──
+    # ── 区域现金净额 ──
     if data.get("has_cf"):
-        cf_own = data["cf_own"]
-        rp_names = set(config["related_parties"])
+        # 全量（含关联方）：用于整体区域排行
+        cf_all = data["cf_own"]
+        # 纯市场化（剔关联方）：用于修正结论
+        cf_mkt = data.get("cf_mkt", cf_all)
+        # 关联方单独：用于量化一次性回款影响
+        cf_rp  = data.get("cf_rp", cf_all.iloc[0:0])
 
-        # 纯市场化（剔关联方）
-        cf_mkt = cf_own[~cf_own["标准名称"].isin(rp_names)] if "标准名称" in cf_own.columns else cf_own
-
-        if "区域" in cf_mkt.columns and "现金流量表项" in cf_mkt.columns:
-            cf_y = cf_mkt[cf_mkt["摘要"] == year]
-            cash_in = cf_y[cf_y["现金流量表项"] == "销售商品、提供劳务收到的现金"].groupby("区域")["值"].sum()
-            cash_out = cf_y[cf_y["现金流量表项"].isin([
+        def _region_net(df, yr):
+            """计算各区域经营现金净额"""
+            if "区域" not in df.columns or "现金流量表项" not in df.columns:
+                return pd.DataFrame()
+            d = df[df["摘要"] == yr]
+            cash_in  = d[d["现金流量表项"].str.contains("销售商品", na=False)].groupby("区域")["值"].sum()
+            cash_out = d[d["现金流量表项"].isin([
                 "购买商品、接受劳务支付的现金",
-                "支付给职工以及为职工支付的现金"
+                "支付给职工以及为职工支付的现金",
             ])].groupby("区域")["值"].sum()
-            cf_df = pd.DataFrame({"in": cash_in, "out": cash_out}).fillna(0)
-            cf_df["net"] = cf_df["in"] - cf_df["out"]
-            result["region_cf"] = cf_df.sort_values("net").round(0).to_dict("index")
+            df_out = pd.DataFrame({"in": cash_in, "out": cash_out}).fillna(0)
+            df_out["net"] = df_out["in"] - df_out["out"]
+            return df_out
+
+        # 含关联方的区域排行（主展示）
+        cf_region_all = _region_net(cf_all, year)
+        # 纯市场化排行（用于修正关联方影响大的区域）
+        cf_region_mkt = _region_net(cf_mkt, year)
+        # 关联方回款贡献（量化影响）
+        cf_region_rp  = _region_net(cf_rp, year)
+
+        # 合并：找出关联方影响显著的区域
+        region_correction = {}
+        for rgn in cf_region_all.index:
+            net_all = cf_region_all.loc[rgn, "net"] if rgn in cf_region_all.index else 0
+            net_mkt = cf_region_mkt.loc[rgn, "net"] if rgn in cf_region_mkt.index else 0
+            net_rp  = cf_region_rp.loc[rgn, "net"]  if rgn in cf_region_rp.index  else 0
+            if abs(net_rp) > 500000:  # 关联方影响>50万才标注
+                region_correction[rgn] = {
+                    "net_all":   round(net_all),
+                    "net_mkt":   round(net_mkt),
+                    "net_rp":    round(net_rp),
+                    "rp_pct":    round(net_rp / net_all * 100, 1) if net_all != 0 else 0,
+                    "has_correction": True,
+                }
+
+        result["region_cf"]         = cf_region_all.sort_values("net").round(0).to_dict("index")
+        result["region_cf_mkt"]     = cf_region_mkt.sort_values("net").round(0).to_dict("index")
+        result["region_correction"] = region_correction  # 需要修正的区域
 
     return result
 

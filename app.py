@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from analysis.loader import load_and_validate
 from analysis.engine import run_all_chapters
 from report.generator import build_html_report
+from report.word_generator import build_word_report
 
 # ── 页面配置 ──
 st.set_page_config(
@@ -182,6 +183,17 @@ with col2:
     else:
         st.warning(f"⚠ 还缺少：{'、'.join(missing)}")
 
+# ── 输出格式选择 ──
+st.markdown("---")
+fmt_col1, fmt_col2, fmt_col3 = st.columns([1,2,1])
+with fmt_col2:
+    output_formats = st.multiselect(
+        "选择输出格式（可多选）",
+        ["HTML（深色主题，浏览器打开）", "Word（.docx，可编辑）"],
+        default=["HTML（深色主题，浏览器打开）"],
+        help="HTML适合在线浏览和分享，Word适合打印和进一步编辑"
+    )
+
 # ── 生成按钮 ──
 st.markdown("---")
 gen_col1, gen_col2, gen_col3 = st.columns([1, 2, 1])
@@ -239,22 +251,50 @@ if generate_btn:
         status_text.markdown("⏳ 正在渲染HTML报告...")
         progress_bar.progress(95)
 
-        html_content = build_html_report(results, config)
+        progress_bar.progress(95)
+        status_text.markdown("⏳ 正在渲染报告...")
+
+        dl_col1, dl_col2, dl_col3 = st.columns([1, 2, 1])
+
+        # ── HTML ──
+        if "HTML（深色主题，浏览器打开）" in output_formats:
+            html_content = build_html_report(results, config)
+            html_name = f"财务分析报告_{config['company_name']}_{report_year}.html"
+            with dl_col2:
+                st.download_button(
+                    label="⬇️ 下载 HTML 报告",
+                    data=html_content.encode("utf-8"),
+                    file_name=html_name,
+                    mime="text/html",
+                    use_container_width=True
+                )
+
+        # ── Word ──
+        if "Word（.docx，可编辑）" in output_formats:
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+                tmp_path = tf.name
+            try:
+                build_word_report(results, config, tmp_path)
+                with open(tmp_path, "rb") as f:
+                    word_bytes = f.read()
+                word_name = f"财务分析报告_{config['company_name']}_{report_year}.docx"
+                with dl_col2:
+                    st.download_button(
+                        label="⬇️ 下载 Word 报告",
+                        data=word_bytes,
+                        file_name=word_name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Word 生成失败：{e}（请检查 node 是否已安装）")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
         progress_bar.progress(100)
         status_text.markdown("✅ 报告生成完成！")
-
-        # ── 下载按钮 ──
-        filename = f"财务分析报告_{config['company_name']}_{report_year}.html"
-        dl_col1, dl_col2, dl_col3 = st.columns([1, 2, 1])
-        with dl_col2:
-            st.download_button(
-                label="⬇️ 下载HTML报告",
-                data=html_content.encode("utf-8"),
-                file_name=filename,
-                mime="text/html",
-                use_container_width=True
-            )
 
         # ── 关键指标预览 ──
         st.markdown("### 📋 关键指标速览")
