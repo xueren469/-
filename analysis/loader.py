@@ -140,7 +140,10 @@ def load_and_validate(file_ic, file_fs, file_ar, file_ap, file_adv, file_cf, con
                        "标准名称", "入场时间", "撤场时间"])
 
     # 标记关联方（收入成本表也标记，供第二章使用）
-    ic["is_related"] = ic["标准名称"].isin(rp_names)
+    # 兼容列名映射前后两种状态
+    _name_col = "标准名称" if "标准名称" in ic.columns else (
+                "标准项目名称" if "标准项目名称" in ic.columns else None)
+    ic["is_related"] = ic[_name_col].isin(rp_names) if _name_col else False
 
     data["ic"]     = ic
     data["ic_rev"] = ic[ic["科目"] == "收入"]
