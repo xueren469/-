@@ -389,7 +389,7 @@ def build_html_report(results, config):
           <td class="r">{_pct(v.get("gm_rate_24",0))}</td>
           <td class="r"><strong>{_pct(gm25)}</strong></td>
           <td class="r {ppt_cls}"><strong>{_ppt(ppt_v)}</strong></td>
-          <td class="r">{_fmt_wan(v.get("gm_chg",0),"" )}</td>
+          <td class="r">{_fmt_wan(v.get("gm_chg",0),"2" )}</td>
         </tr>"""
 
     # 项目分布
